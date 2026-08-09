@@ -1,4 +1,7 @@
 # Satellite Land Use and Land Cover Classification
+
+![Uploading WhatsApp Image 2026-08-09 at 1.16.13 PM.jpeg…]()
+
 ![License](https://img.shields.io/badge/License-MIT-blue)
 ![PRs](https://img.shields.io/badge/PRs-welcome-brightgreen)
 ![Open Source](https://img.shields.io/badge/Open%20Source-Yes-success)
