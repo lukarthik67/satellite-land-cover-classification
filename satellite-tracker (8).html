@@ -1,0 +1,1174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Satellite Land Use and Land Cover — Real-Time Monitoring</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+html, body {
+  width:100%; height:100%; overflow:hidden;
+  background:#000000;
+  font-family:'Inter', sans-serif;
+  color:#dfe6ec;
+}
+
+#stage { position:fixed; inset:0; z-index:0; }
+#three-canvas { position:fixed; inset:0; z-index:1; display:block; }
+
+.vignette {
+  position:fixed; inset:0; z-index:5; pointer-events:none;
+  background: radial-gradient(ellipse at center, rgba(0,0,0,0) 45%, rgba(0,0,0,0.55) 100%);
+}
+.grain {
+  position:fixed; inset:0; z-index:6; pointer-events:none; opacity:.035; mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.scanline {
+  position:fixed; inset:0; z-index:7; pointer-events:none; opacity:.05;
+  background:repeating-linear-gradient(to bottom, rgba(255,255,255,0.6) 0px, rgba(255,255,255,0.6) 1px, transparent 1px, transparent 3px);
+}
+
+#ui { position:fixed; inset:0; z-index:10; pointer-events:none; }
+#ui > * { pointer-events:auto; }
+
+.glass {
+  background:linear-gradient(180deg, rgba(10,16,24,0.62), rgba(6,10,16,0.72));
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  border:1px solid rgba(120,170,210,0.16);
+  box-shadow: 0 8px 40px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+/* ---- TOP BAR ---- */
+.topbar {
+  position:absolute; top:0; left:0; right:0; height:76px;
+  display:flex; align-items:center; justify-content:space-between;
+  padding:0 28px;
+  border-bottom:1px solid rgba(120,170,210,0.14);
+  background:linear-gradient(180deg, rgba(4,8,14,0.75), rgba(4,8,14,0.15));
+}
+.brand { display:flex; align-items:center; gap:14px; }
+.brand-mark {
+  width:38px; height:38px; border-radius:50%;
+  border:1.5px solid rgba(110,220,255,0.55);
+  display:flex; align-items:center; justify-content:center;
+  position:relative;
+  box-shadow:0 0 16px rgba(80,200,255,0.35), inset 0 0 10px rgba(80,200,255,0.25);
+}
+.brand-mark::before {
+  content:''; position:absolute; width:6px; height:6px; border-radius:50%;
+  background:#7fe3ff; box-shadow:0 0 8px #7fe3ff;
+  animation:orbitpin 3s linear infinite;
+}
+@keyframes orbitpin {
+  from { transform: rotate(0deg) translateX(14px) rotate(0deg); }
+  to { transform: rotate(360deg) translateX(14px) rotate(-360deg); }
+}
+.brand-text h1 {
+  font-family:'Orbitron', sans-serif; font-size:13.5px; font-weight:700;
+  letter-spacing:1.4px; color:#eef6fb; white-space:nowrap;
+}
+.brand-text p {
+  font-size:10.5px; letter-spacing:2px; color:#5c8ba3; margin-top:2px; font-weight:500;
+}
+.top-right { display:flex; align-items:center; gap:22px; }
+.clock-block { text-align:right; }
+#clock {
+  font-family:'JetBrains Mono', monospace; font-size:19px; font-weight:600;
+  color:#8fe9ff; letter-spacing:1.5px; text-shadow:0 0 12px rgba(90,220,255,0.4);
+}
+#datestamp { font-size:10.5px; color:#5c7488; letter-spacing:1.5px; margin-top:2px; }
+.menu-dots {
+  width:36px; height:36px; border-radius:8px; display:flex; align-items:center; justify-content:center;
+  border:1px solid rgba(120,170,210,0.2); cursor:pointer; color:#89aabf;
+  transition:all .2s;
+}
+.menu-dots:hover { background:rgba(120,170,210,0.1); color:#cfeaf5; }
+
+/* ---- LEFT PANEL ---- */
+.panel-left {
+  position:absolute; left:24px; top:100px; width:296px; bottom:24px;
+  border-radius:14px; display:flex; flex-direction:column; overflow:hidden;
+}
+.panel-header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:16px 18px; border-bottom:1px solid rgba(120,170,210,0.14);
+}
+.panel-header h2 {
+  font-family:'Orbitron', sans-serif; font-size:11.5px; letter-spacing:2px; color:#a9c8db; font-weight:600;
+}
+.count-badge {
+  font-family:'JetBrains Mono', monospace; font-size:13px; color:#7fe3ff; font-weight:600;
+}
+.sat-list { flex:1; overflow-y:auto; padding:6px 10px; }
+.sat-list::-webkit-scrollbar { width:4px; }
+.sat-list::-webkit-scrollbar-thumb { background:rgba(120,170,210,0.25); border-radius:2px; }
+
+.sat-item {
+  display:flex; align-items:center; gap:12px; padding:10px 10px;
+  border-radius:9px; cursor:pointer; margin-bottom:2px;
+  border:1px solid transparent;
+  transition:background .18s, border-color .18s;
+}
+.sat-item:hover { background:rgba(120,170,210,0.08); }
+.sat-item.active {
+  background:rgba(80,220,180,0.09);
+  border-color:rgba(90,240,190,0.3);
+}
+.sat-icon {
+  width:34px; height:34px; border-radius:8px; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center;
+  background:rgba(120,170,210,0.08); border:1px solid rgba(120,170,210,0.18);
+  color:#8fc3da; font-size:15px;
+}
+.sat-item.active .sat-icon { color:#7dffce; border-color:rgba(90,240,190,0.4); }
+.sat-info { flex:1; min-width:0; }
+.sat-name { font-size:13px; font-weight:600; color:#e4edf3; letter-spacing:.3px; }
+.sat-meta { display:flex; align-items:center; gap:8px; margin-top:3px; }
+.sat-alt { font-family:'JetBrains Mono', monospace; font-size:10.5px; color:#688498; }
+.sat-status { font-size:9px; letter-spacing:1px; color:#5fe6a8; font-weight:600; display:flex; align-items:center; gap:4px; }
+.dot-live { width:5px; height:5px; border-radius:50%; background:#5fe6a8; box-shadow:0 0 6px #5fe6a8; animation:pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.35;} }
+
+.view-all {
+  margin:12px 14px 14px; padding:11px; text-align:center;
+  border-radius:9px; border:1px solid rgba(120,170,210,0.22);
+  color:#8fc3da; font-size:11px; letter-spacing:1.5px; font-weight:600;
+  cursor:pointer; background:rgba(120,170,210,0.04); transition:all .2s;
+}
+.view-all:hover { background:rgba(120,170,210,0.12); color:#cfeaf5; }
+
+/* ---- RIGHT PANEL ---- */
+.panel-right {
+  position:absolute; right:24px; top:100px; width:300px;
+  border-radius:14px; overflow:hidden;
+}
+.sat-hero {
+  height:150px; position:relative; overflow:hidden;
+  background:radial-gradient(ellipse at 50% 30%, rgba(60,120,160,0.35), transparent 70%);
+  border-bottom:1px solid rgba(120,170,210,0.14);
+  display:flex; align-items:center; justify-content:center;
+}
+.sat-hero-glow {
+  position:absolute; width:200px; height:200px; border-radius:50%;
+  background:radial-gradient(circle, rgba(90,220,255,0.18), transparent 70%);
+  animation:heroglow 4s ease-in-out infinite;
+}
+@keyframes heroglow { 0%,100%{ transform:scale(1); opacity:.7;} 50%{ transform:scale(1.15); opacity:1;} }
+.sat-hero i { font-size:52px; color:#bfe6f5; position:relative; z-index:2; filter:drop-shadow(0 0 14px rgba(120,220,255,0.5)); }
+#sel-name-hero {
+  font-family:'Orbitron', sans-serif; font-size:13px; letter-spacing:2px; color:#7dffce;
+  padding:14px 18px 4px;
+}
+.stat-rows { padding:6px 18px 16px; }
+.stat-row {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:9px 0; border-bottom:1px solid rgba(120,170,210,0.08);
+}
+.stat-row:last-child { border-bottom:none; }
+.stat-label { font-size:10px; letter-spacing:1.3px; color:#5c7488; font-weight:600; }
+.stat-value { font-family:'JetBrains Mono', monospace; font-size:12.5px; color:#dcecf3; font-weight:500; }
+.stat-value.status-live { color:#5fe6a8; }
+.view-details-btn {
+  margin:4px 18px 18px; padding:12px; text-align:center; border-radius:9px;
+  background:linear-gradient(180deg, rgba(90,220,255,0.14), rgba(90,220,255,0.06));
+  border:1px solid rgba(90,220,255,0.3); color:#a7ecff; font-size:11px;
+  letter-spacing:1.8px; font-weight:600; cursor:pointer; transition:all .2s;
+}
+.view-details-btn:hover { background:rgba(90,220,255,0.22); box-shadow:0 0 18px rgba(90,220,255,0.15); }
+
+/* ---- BOTTOM NAV ---- */
+.bottom-nav {
+  position:absolute; bottom:24px; left:50%; transform:translateX(-50%);
+  display:flex; align-items:center; gap:6px;
+  padding:10px 14px; border-radius:16px;
+}
+.nav-item {
+  display:flex; flex-direction:column; align-items:center; gap:5px;
+  padding:9px 20px; border-radius:11px; cursor:pointer; color:#6a8ba0;
+  transition:all .2s;
+}
+.nav-item i { font-size:18px; }
+.nav-item span { font-size:8.5px; letter-spacing:1.3px; font-weight:600; }
+.nav-item:hover { color:#a9d3e5; }
+.nav-item.active { color:#8fe9ff; background:rgba(90,220,255,0.1); box-shadow:inset 0 0 0 1px rgba(90,220,255,0.25); }
+
+/* ---- CLICK INFO PANEL ---- */
+.click-info {
+  position:absolute; top:100px; right:24px; width:270px;
+  border-radius:14px; overflow:hidden; display:none;
+}
+.click-info-header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:14px 16px; border-bottom:1px solid rgba(120,170,210,0.14);
+}
+.click-info-title {
+  font-family:'Orbitron', sans-serif; font-size:11px; letter-spacing:2px; color:#a9c8db; font-weight:600;
+}
+.click-info-close {
+  cursor:pointer; color:#89aabf; font-size:17px; line-height:1; padding:2px 4px;
+  transition:color .2s;
+}
+.click-info-close:hover { color:#cfeaf5; }
+.click-info-body { padding:6px 16px 16px; }
+.ci-row {
+  display:flex; align-items:center; justify-content:space-between;
+  padding:9px 0; border-bottom:1px solid rgba(120,170,210,0.08);
+}
+.ci-row:last-child { border-bottom:none; }
+.ci-label { font-size:10px; letter-spacing:1.3px; color:#5c7488; font-weight:600; }
+.ci-value { font-family:'JetBrains Mono', monospace; font-size:13px; color:#dcecf3; font-weight:600; }
+.ci-hint {
+  padding:10px 16px 14px; font-size:9.5px; letter-spacing:.5px; color:#4d6779;
+  border-top:1px solid rgba(120,170,210,0.08);
+}
+
+/* ---- SAT LABELS in 3D scene ---- */
+.sat-label {
+  position:absolute; z-index:8; pointer-events:none; transform:translate(-50%, -140%);
+  display:flex; flex-direction:column; align-items:center; white-space:nowrap;
+  transition:opacity .2s;
+}
+.sat-label .name-tag {
+  font-family:'JetBrains Mono', monospace; font-size:10.5px; letter-spacing:1px;
+  color:#cfeaf5; background:rgba(6,12,18,0.55); padding:3px 8px; border-radius:4px;
+  border:1px solid rgba(120,170,210,0.25);
+}
+.sat-label.selected .name-tag { color:#7dffce; border-color:rgba(90,240,190,0.5); }
+.sat-label .stem { width:1px; height:14px; background:linear-gradient(180deg, rgba(150,200,220,0.6), transparent); }
+
+/* ---- LOADING ---- */
+#loader {
+  position:fixed; inset:0; z-index:100; background:#020407;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px;
+  transition:opacity 1s ease;
+}
+.loader-ring {
+  width:64px; height:64px; border-radius:50%;
+  border:2px solid rgba(90,220,255,0.15); border-top-color:#7fe3ff;
+  animation:spin 1s linear infinite;
+}
+@keyframes spin { to { transform:rotate(360deg); } }
+#loader p {
+  font-family:'Orbitron', sans-serif; font-size:11px; letter-spacing:3px; color:#5c8ba3;
+}
+
+@media (max-width: 980px) {
+  .panel-left, .panel-right { display:none; }
+  .lp-panel, .rp-panel, .model-status-bar, .bottom-bar { display:none; }
+}
+
+/* ===================== NEW: UPLOAD / PREDICTION / ANALYSIS UI ===================== */
+.lp-panel {
+  position:absolute; left:24px; top:100px; width:314px; bottom:24px;
+  border-radius:14px; display:flex; flex-direction:column; overflow:hidden;
+}
+.rp-panel {
+  position:absolute; right:24px; top:100px; width:330px; bottom:24px;
+  border-radius:14px; display:flex; flex-direction:column; overflow-y:auto;
+}
+.rp-panel::-webkit-scrollbar { width:4px; }
+.rp-panel::-webkit-scrollbar-thumb { background:rgba(120,170,210,0.25); border-radius:2px; }
+
+.up-header, .rp-header {
+  display:flex; align-items:center; gap:9px; padding:16px 18px;
+  border-bottom:1px solid rgba(120,170,210,0.14); flex-shrink:0;
+}
+.up-header h2, .rp-header h2 {
+  font-family:'Orbitron', sans-serif; font-size:11.5px; letter-spacing:1.6px; color:#a9c8db; font-weight:600;
+}
+.up-header i, .rp-header i { color:#7fe3ff; font-size:14px; font-style:normal; }
+.ic { width:15px; height:15px; color:#7fe3ff; flex-shrink:0; }
+
+.dropzone {
+  margin:16px 18px 0; border:1.5px dashed rgba(120,170,210,0.3); border-radius:12px;
+  padding:26px 14px; text-align:center; cursor:pointer; transition:all .2s; flex-shrink:0;
+  background:rgba(120,170,210,0.03);
+}
+.dropzone:hover, .dropzone.drag-over { border-color:rgba(90,220,255,0.55); background:rgba(90,220,255,0.06); }
+.dropzone .dz-icon { color:#5c8ba3; margin-bottom:10px; display:flex; justify-content:center; }
+.dropzone .dz-main { font-size:12.5px; color:#c3d6e1; font-weight:500; }
+.dropzone .dz-or { font-size:10.5px; color:#4d6779; margin:8px 0; letter-spacing:.5px; }
+.browse-btn {
+  display:inline-block; padding:8px 18px; border-radius:7px; font-size:11.5px; font-weight:600;
+  letter-spacing:.5px; color:#a7ecff; border:1px solid rgba(90,220,255,0.35);
+  background:rgba(90,220,255,0.08); cursor:pointer; transition:all .2s;
+}
+.browse-btn:hover { background:rgba(90,220,255,0.18); }
+.formats-note { text-align:center; font-size:9.5px; color:#4d6779; letter-spacing:.4px; line-height:1.6; margin:12px 18px 4px; flex-shrink:0; }
+
+.section-divider { height:1px; background:rgba(120,170,210,0.14); margin:16px 18px 0; flex-shrink:0; }
+
+.uploaded-section { flex-shrink:0; display:flex; flex-direction:column; }
+.uploaded-body { padding:14px 18px 4px; }
+.uploaded-preview {
+  width:100%; height:118px; border-radius:9px; background-size:cover; background-position:center;
+  border:1px solid rgba(120,170,210,0.22); margin-bottom:10px;
+}
+.uploaded-filename-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.uploaded-filename { font-size:12px; color:#dcecf3; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.uploaded-trash { color:#ff5f6d; cursor:pointer; flex-shrink:0; display:flex; transition:opacity .2s; }
+.uploaded-trash svg { width:15px; height:15px; }
+.uploaded-trash:hover { opacity:.7; }
+.uploaded-meta { display:flex; gap:14px; margin-top:9px; flex-wrap:wrap; }
+.meta-item { display:flex; align-items:center; gap:5px; font-size:10px; color:#7a97aa; }
+.meta-item svg { width:12px; height:12px; flex-shrink:0; }
+
+.run-btn {
+  margin:16px 18px 18px; padding:13px; text-align:center; border-radius:10px; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center; gap:9px;
+  background:linear-gradient(135deg, #2f77f0, #1c56d1); color:#eaf2ff; font-size:12.5px;
+  letter-spacing:1.4px; font-weight:700; cursor:pointer; border:1px solid rgba(120,170,255,0.3);
+  transition:all .2s; box-shadow:0 4px 18px rgba(28,86,209,0.4);
+}
+.run-btn .ic { color:#eaf2ff; width:16px; height:16px; }
+.run-btn:hover { filter:brightness(1.12); transform:translateY(-1px); }
+.run-btn:active { transform:translateY(0); }
+.run-btn.busy { opacity:.7; pointer-events:none; }
+
+.pred-class-block { padding:16px 18px 10px; }
+.pred-label { font-size:9.5px; letter-spacing:1.6px; color:#5c7488; font-weight:600; }
+#pred-class-name {
+  font-family:'Orbitron', sans-serif; font-size:19px; font-weight:800; letter-spacing:.5px;
+  color:#5fe6a8; margin:6px 0 14px; text-shadow:0 0 16px rgba(95,230,168,0.35); transition:color .3s;
+}
+.conf-row { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:6px; }
+#pred-conf-num { font-family:'JetBrains Mono', monospace; font-size:17px; color:#e4edf3; font-weight:600; }
+.conf-bar-track { height:7px; border-radius:4px; background:rgba(120,170,210,0.12); overflow:hidden; }
+.conf-bar-fill { height:100%; border-radius:4px; background:linear-gradient(90deg,#3ecf8e,#7dffce); transition:width .6s ease; }
+
+.probs-block { padding:6px 18px 14px; border-top:1px solid rgba(120,170,210,0.1); margin-top:4px; }
+.probs-block .blk-title { font-size:9.5px; letter-spacing:1.6px; color:#5c7488; font-weight:600; margin:10px 0 10px; }
+.prob-row { display:flex; align-items:center; gap:9px; padding:6px 0; }
+.prob-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.prob-name { font-size:11.5px; color:#c3d6e1; flex:0 0 88px; }
+.prob-track { flex:1; height:4px; border-radius:2px; background:rgba(120,170,210,0.1); overflow:hidden; }
+.prob-fill { height:100%; border-radius:2px; transition:width .6s ease; }
+.prob-pct { font-family:'JetBrains Mono', monospace; font-size:11px; color:#9ab4c4; width:52px; text-align:right; }
+
+.legend-block { padding:10px 18px 18px; border-top:1px solid rgba(120,170,210,0.1); }
+.legend-block .blk-title { font-size:9.5px; letter-spacing:1.6px; color:#5c7488; font-weight:600; margin:10px 0 12px; }
+.legend-grid { display:grid; grid-template-columns:1fr 1fr; gap:9px 6px; }
+.legend-item { display:flex; align-items:center; gap:7px; font-size:11px; color:#b9cdd9; }
+.legend-swatch { width:9px; height:9px; border-radius:2px; flex-shrink:0; }
+
+.model-status-bar {
+  position:absolute; left:50%; bottom:28px; transform:translateX(-50%);
+  width:max-content; max-width:calc(100vw - 748px); height:44px;
+  border-radius:11px; display:flex; align-items:center; justify-content:center;
+  padding:0 22px; gap:16px;
+}
+@media (max-width: 1400px) {
+  .model-status-bar { max-width:calc(100vw - 60px); flex-wrap:wrap; height:auto; padding:10px 18px; }
+}
+.model-status-bar .ms-left { display:flex; align-items:center; gap:8px; font-size:10.5px; letter-spacing:1.2px; color:#c3d6e1; font-weight:700; }
+.model-status-bar .ms-item { display:flex; align-items:center; gap:7px; font-size:11px; color:#c3d6e1; white-space:nowrap; }
+.model-status-bar .ms-item b { color:#dcecf3; font-weight:600; }
+.ms-sep { color:rgba(120,170,210,0.3); font-size:13px; }
+.ms-dot { width:7px; height:7px; border-radius:50%; background:#5fe6a8; box-shadow:0 0 7px #5fe6a8; animation:pulse 1.6s ease-in-out infinite; }
+.ms-active { color:#5fe6a8; font-weight:600; }
+
+.footer-strip {
+  position:absolute; left:0; right:0; bottom:2px; z-index:9; pointer-events:none;
+  display:flex; justify-content:space-between; padding:0 28px; font-size:9.5px; color:#3d5566; letter-spacing:.3px;
+}
+.footer-left { display:flex; align-items:center; gap:6px; }
+.footer-left .ic { width:12px; height:12px; color:#3d5566; }
+</style>
+</head>
+<body>
+
+<div id="loader">
+  <div class="loader-ring"></div>
+  <p id="loader-text">ACQUIRING ORBITAL TELEMETRY</p>
+</div>
+<script>
+(function(){
+  function hideLoader(msg){
+    var l = document.getElementById('loader');
+    if(!l) return;
+    l.style.transition = 'opacity .8s ease';
+    l.style.opacity = '0';
+    l.style.pointerEvents = 'none';
+    setTimeout(function(){ if(l) l.style.display = 'none'; }, 850);
+  }
+  window.__hideLoader = hideLoader;
+  setTimeout(function(){ hideLoader(); }, 3000);
+})();
+</script>
+
+<div id="stage"><canvas id="three-canvas"></canvas></div>
+<div class="vignette"></div>
+<div class="grain"></div>
+<div class="scanline"></div>
+
+<div id="ui">
+  <div class="topbar glass" style="border-radius:0;">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div class="brand-text">
+        <h1>SATELLITE LAND USE &amp; LAND COVER</h1>
+        <p>REAL-TIME SATELLITE MONITORING</p>
+      </div>
+    </div>
+    <div class="top-right">
+      <div class="clock-block">
+        <div id="clock">--:--:-- IST</div>
+        <div id="datestamp">--- -- ----</div>
+      </div>
+      <div class="menu-dots">&#9776;</div>
+    </div>
+  </div>
+
+  <div class="lp-panel glass">
+    <div class="up-header"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 18a4.5 4.5 0 0 1-.5-8.98A5.5 5.5 0 0 1 17.5 9 4 4 0 0 1 17 18H7Z"/><path d="M12 12v6m0-6-2.5 2.5M12 12l2.5 2.5"/></svg><h2>UPLOAD SATELLITE IMAGE</h2></div>
+    <div class="dropzone" id="dropzone">
+      <div class="dz-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" width="30" height="30"><path d="M7 18a4.5 4.5 0 0 1-.5-8.98A5.5 5.5 0 0 1 17.5 9 4 4 0 0 1 17 18H7Z"/><path d="M12 12v6m0-6-2.5 2.5M12 12l2.5 2.5"/></svg>
+      </div>
+      <div class="dz-main">Drag &amp; Drop your image</div>
+      <div class="dz-or">or</div>
+      <div class="browse-btn" id="browse-btn">Browse Files</div>
+      <input type="file" id="file-input" accept="image/*" style="display:none;">
+    </div>
+    <div class="formats-note">Supported formats: JPG, PNG, TIFF<br>(Max 10MB)</div>
+
+    <div class="section-divider"></div>
+
+    <div class="uploaded-section" id="uploaded-section">
+      <div class="up-header"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2.5"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg><h2>UPLOADED IMAGE</h2></div>
+      <div class="uploaded-body">
+        <div class="uploaded-preview" id="uploaded-preview"></div>
+        <div class="uploaded-filename-row">
+          <span class="uploaded-filename" id="uploaded-filename">image_20250803_143724.jpg</span>
+          <span class="uploaded-trash" id="uploaded-trash" title="Remove image">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16"/><path d="M9 7V4.8c0-.44.36-.8.8-.8h4.4c.44 0 .8.36.8.8V7"/><path d="M6 7l1 12.2c.05.98.87 1.8 1.85 1.8h6.3c.98 0 1.8-.82 1.85-1.8L18 7"/><path d="M10 11v6M14 11v6"/></svg>
+          </span>
+        </div>
+        <div class="uploaded-meta">
+          <span class="meta-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m3 15 5-5 4 4 4-4 5 5"/></svg><span id="meta-res">512 x 512 px</span></span>
+          <span class="meta-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg><span id="meta-type">image/jpeg</span></span>
+          <span class="meta-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg><span id="meta-size">245 KB</span></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="run-btn" id="run-btn"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="12" r="2.4"/><circle cx="5" cy="6" r="1.8"/><circle cx="19" cy="6" r="1.8"/><circle cx="5" cy="18" r="1.8"/><circle cx="19" cy="18" r="1.8"/><path d="M9.9 10.6 6.4 7.3M14.1 10.6l3.5-3.3M9.9 13.4l-3.5 3.3M14.1 13.4l3.5 3.3"/></svg>PREDICT LAND COVER</div>
+  </div>
+
+  <div class="rp-panel glass">
+    <div class="rp-header"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><h2>PREDICTION RESULT</h2></div>
+    <div class="pred-class-block">
+      <div class="pred-label">Predicted Class</div>
+      <div id="pred-class-name">--</div>
+      <div class="conf-row"><span class="pred-label">Confidence Score</span></div>
+      <div class="conf-row"><span id="pred-conf-num">--</span></div>
+      <div class="conf-bar-track"><div class="conf-bar-fill" id="conf-bar-fill" style="width:0%;"></div></div>
+    </div>
+    <div class="probs-block">
+      <div class="blk-title">CLASS PROBABILITIES</div>
+      <div id="probs-list"></div>
+    </div>
+    <div class="legend-block">
+      <div class="blk-title">LAND COVER LEGEND</div>
+      <div class="legend-grid" id="legend-grid"></div>
+    </div>
+  </div>
+
+  <div class="model-status-bar glass">
+    <div class="ms-left">AI MODEL STATUS</div>
+    <span class="ms-sep">|</span>
+    <div class="ms-item"><span class="ms-dot"></span><span class="ms-active">Model Active</span></div>
+    <span class="ms-sep">|</span>
+    <div class="ms-item">Model: <b>ResNet50 Fine-Tuned</b></div>
+    <span class="ms-sep">|</span>
+    <div class="ms-item">Accuracy: <b>92.41%</b></div>
+  </div>
+
+  <div class="click-info glass" id="click-info">
+    <div class="click-info-header">
+      <span class="click-info-title">CLICKED POSITION</span>
+      <span class="click-info-close" id="click-info-close">&times;</span>
+    </div>
+    <div class="click-info-body">
+      <div class="ci-row"><span class="ci-label">LATITUDE</span><span class="ci-value" id="ci-lat">--</span></div>
+      <div class="ci-row"><span class="ci-label">LONGITUDE</span><span class="ci-value" id="ci-lon">--</span></div>
+      <div class="ci-row"><span class="ci-label">PREDICTION</span><span class="ci-value" id="ci-pred">--</span></div>
+      <div class="ci-row"><span class="ci-label">CONFIDENCE</span><span class="ci-value" id="ci-conf">--</span></div>
+    </div>
+    <div class="ci-hint">SIMULATED CLASSIFICATION — DEMO DATA</div>
+  </div>
+
+  <div id="labels-layer" style="display:none;"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" onerror="window.__hideLoader && window.__hideLoader();"></script>
+<script>
+try {
+if (typeof THREE === 'undefined') { throw new Error('three.js failed to load'); }
+/* ===================== DATA ===================== */
+const SAT_DATA = [
+  { key:'HUBBLE',    name:'HUBBLE',      alt:550,   speed:7.59, inc:28.5, cls:'LEO', raan:0.3,  icon:'\u2721', color:0x7fe3ff },
+  { key:'ISS',       name:'ISS',         alt:408,   speed:7.66, inc:51.6, cls:'LEO', raan:1.9,  icon:'\u2698', color:0x7fe3ff },
+  { key:'LANDSAT8',  name:'LANDSAT 8',   alt:705,   speed:7.51, inc:98.2, cls:'LEO', raan:3.4,  icon:'\u25C8', color:0x9fd6ff },
+  { key:'SENTINEL1A',name:'SENTINEL-1A', alt:693,   speed:7.53, inc:98.18,cls:'LEO', raan:5.0,  icon:'\u25C7', color:0xffd27f },
+  { key:'TERRA',     name:'TERRA',       alt:705,   speed:7.51, inc:98.2, cls:'LEO', raan:5.9,  icon:'\u25C9', color:0x9fd6ff },
+];
+
+/* ===================== THREE.JS SCENE ===================== */
+const canvas = document.getElementById('three-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(42, window.innerWidth/window.innerHeight, 0.1, 1000);
+
+const EARTH_R = 2;
+
+/* --- Starfield --- */
+function buildStars(){
+  const g = new THREE.BufferGeometry();
+  const n = 2800;
+  const pos = new Float32Array(n*3);
+  for(let i=0;i<n;i++){
+    const r = 60 + Math.random()*140;
+    const theta = Math.random()*Math.PI*2;
+    const phi = Math.acos((Math.random()*2)-1);
+    pos[i*3] = r*Math.sin(phi)*Math.cos(theta);
+    pos[i*3+1] = r*Math.cos(phi);
+    pos[i*3+2] = r*Math.sin(phi)*Math.sin(theta);
+  }
+  g.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  const m = new THREE.PointsMaterial({ color:0xffffff, size:0.22, transparent:true, opacity:0.75, sizeAttenuation:true });
+  const stars = new THREE.Points(g,m);
+  scene.add(stars);
+}
+buildStars();
+
+/* --- Sun light --- */
+const sunDir = new THREE.Vector3(5, 2, 3).normalize();
+const sunLight = new THREE.DirectionalLight(0xfff4e0, 2.2);
+sunLight.position.copy(sunDir.clone().multiplyScalar(50));
+scene.add(sunLight);
+scene.add(new THREE.AmbientLight(0x223344, 0.55));
+
+/* sun glow sprite */
+function makeGlowTexture(){
+  const c = document.createElement('canvas'); c.width=c.height=256;
+  const ctx = c.getContext('2d');
+  const grad = ctx.createRadialGradient(128,128,0,128,128,128);
+  grad.addColorStop(0,'rgba(255,244,220,1)');
+  grad.addColorStop(0.25,'rgba(255,220,160,0.55)');
+  grad.addColorStop(1,'rgba(255,220,160,0)');
+  ctx.fillStyle = grad; ctx.fillRect(0,0,256,256);
+  return new THREE.CanvasTexture(c);
+}
+const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map:makeGlowTexture(), transparent:true, blending:THREE.AdditiveBlending, depthWrite:false }));
+sunSprite.scale.set(14,14,1);
+sunSprite.position.copy(sunDir.clone().multiplyScalar(40));
+scene.add(sunSprite);
+
+/* --- Texture loader with graceful fallback --- */
+const loader = new THREE.TextureLoader();
+loader.crossOrigin = 'anonymous';
+function loadTex(url){
+  return new Promise((resolve)=>{
+    loader.load(url, (t)=>resolve(t), undefined, ()=>resolve(null));
+  });
+}
+
+const earthGroup = new THREE.Group();
+scene.add(earthGroup);
+
+/* ===================== REAL-TIME SUN POSITION =====================
+   Computes the actual subsolar point (the point on Earth currently
+   directly under the sun) from the real UTC clock, then:
+   1) sets the world-space sun direction's elevation to match the
+      current solar declination (season), and
+   2) rotates the Earth so the correct real longitude faces the sun —
+      this is what makes "is it daytime in India right now" accurate. */
+const DEG2RAD = Math.PI/180;
+function updateRealSunPosition(){
+  const now = new Date();
+  const utcHours = now.getUTCHours() + now.getUTCMinutes()/60 + now.getUTCSeconds()/3600;
+  const startOfYear = Date.UTC(now.getUTCFullYear(), 0, 0);
+  const dayOfYear = (now.getTime() - startOfYear) / 86400000;
+
+  /* solar declination (deg) — how far north/south the sun sits overhead by season */
+  const declDeg = -23.44 * Math.cos(DEG2RAD * (360/365.25) * (dayOfYear + 10));
+  /* subsolar longitude (deg) — where local solar noon is happening right now */
+  let subLonDeg = -(utcHours - 12) * 15;
+  subLonDeg = ((subLonDeg + 180) % 360 + 360) % 360 - 180;
+
+  const declRad = declDeg * DEG2RAD;
+  const subLonRad = subLonDeg * DEG2RAD;
+
+  sunDir.set(Math.cos(declRad), Math.sin(declRad), 0).normalize();
+  sunLight.position.copy(sunDir.clone().multiplyScalar(50));
+  sunSprite.position.copy(sunDir.clone().multiplyScalar(40));
+
+  /* rotate the globe so the texture's real Greenwich meridian lines up
+     correctly with the fixed sun direction above */
+  earthGroup.rotation.y = -subLonRad;
+}
+updateRealSunPosition();
+
+const EARTH_VERT = `
+varying vec2 vUv;
+varying vec3 vNormalW;
+varying vec3 vWorldPosition;
+void main(){
+  vUv = uv;
+  vNormalW = normalize(mat3(modelMatrix) * normal);
+  vWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+}`;
+
+const EARTH_FRAG = `
+uniform sampler2D dayMap;
+uniform sampler2D nightMap;
+uniform sampler2D specularMap;
+uniform vec3 sunDirection;
+varying vec2 vUv;
+varying vec3 vNormalW;
+varying vec3 vWorldPosition;
+void main(){
+  vec3 N = normalize(vNormalW);
+  vec3 L = normalize(sunDirection);
+  vec3 V = normalize(cameraPosition - vWorldPosition);
+
+  float lightAmt = dot(N, L);
+  float dayMix = smoothstep(-0.12, 0.18, lightAmt);
+
+  vec3 dayColor = texture2D(dayMap, vUv).rgb;
+  vec3 nightColor = texture2D(nightMap, vUv).rgb * 1.8;
+  float oceanMask = texture2D(specularMap, vUv).r;
+
+  /* soft terminator glow (sunset/sunrise atmosphere tint) */
+  float terminator = 1.0 - smoothstep(0.0, 0.35, abs(lightAmt));
+  vec3 duskTint = vec3(1.0, 0.55, 0.25) * terminator * dayMix * 0.35;
+
+  vec3 color = mix(nightColor, dayColor + duskTint, dayMix);
+
+  /* specular glint on oceans only */
+  vec3 halfDir = normalize(L + V);
+  float specPower = pow(max(dot(N, halfDir), 0.0), 42.0);
+  color += vec3(1.0, 0.98, 0.9) * specPower * oceanMask * dayMix * 1.1;
+
+  gl_FragColor = vec4(color, 1.0);
+}`;
+
+let earthMesh, cloudMesh, atmoMesh;
+
+function withTimeout(promise, ms){
+  return Promise.race([promise, new Promise(res=>setTimeout(()=>res(null), ms))]);
+}
+
+async function buildEarth(){
+  const [dayMap, nightMap, specMap, cloudMap] = await withTimeout(Promise.all([
+    loadTex('https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/earth_atmos_2048.jpg'),
+    loadTex('https://unpkg.com/three-globe@2.31.0/example/img/earth-night.jpg'),
+    loadTex('https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/earth_specular_2048.jpg'),
+    loadTex('https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/earth_clouds_1024.png'),
+  ]), 6000);
+
+  const geo = new THREE.SphereGeometry(EARTH_R, 128, 128);
+
+  let mat;
+  if(dayMap && nightMap && specMap){
+    mat = new THREE.ShaderMaterial({
+      uniforms:{ dayMap:{value:dayMap}, nightMap:{value:nightMap}, specularMap:{value:specMap}, sunDirection:{value:sunDir} },
+      vertexShader: EARTH_VERT, fragmentShader: EARTH_FRAG,
+    });
+  } else {
+    mat = new THREE.MeshPhongMaterial({ color:0x2255aa, shininess:6 });
+  }
+  earthMesh = new THREE.Mesh(geo, mat);
+  earthGroup.add(earthMesh);
+
+  if(cloudMap){
+    const cg = new THREE.SphereGeometry(EARTH_R*1.012, 128, 128);
+    const cm = new THREE.MeshPhongMaterial({ map:cloudMap, transparent:true, opacity:0.55, depthWrite:false });
+    cloudMesh = new THREE.Mesh(cg, cm);
+    earthGroup.add(cloudMesh);
+  }
+
+  window.__hideLoader && window.__hideLoader();
+}
+buildEarth().catch(()=>{ window.__hideLoader && window.__hideLoader(); });
+
+/* ===================== SATELLITES ===================== */
+function orbitRadiusFor(alt, cls){
+  if(cls==='LEO') return EARTH_R * 1.28;
+  if(cls==='MEO') return EARTH_R * 1.75;
+  return EARTH_R * 2.35;
+}
+
+function buildSatMesh(sat){
+  const g = new THREE.Group();
+  const bodyGeo = new THREE.BoxGeometry(0.045,0.045,0.07);
+  const bodyMat = new THREE.MeshStandardMaterial({ color:0xcfd8de, metalness:0.7, roughness:0.35, emissive:0x111111 });
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
+  g.add(body);
+
+  const panelGeo = new THREE.BoxGeometry(0.16,0.005,0.055);
+  const panelMat = new THREE.MeshStandardMaterial({ color:0x1a3a6b, metalness:0.4, roughness:0.5, emissive:0x0a1830 });
+  const p1 = new THREE.Mesh(panelGeo, panelMat); p1.position.x = 0.11; g.add(p1);
+  const p2 = new THREE.Mesh(panelGeo, panelMat); p2.position.x = -0.11; g.add(p2);
+
+  const glowMat = new THREE.SpriteMaterial({ map:makeGlowTexture(), color:sat.color, transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, opacity:0.9 });
+  const glow = new THREE.Sprite(glowMat);
+  glow.scale.set(0.32,0.32,1);
+  g.add(glow);
+
+  return g;
+}
+
+function buildOrbitLine(radius, color){
+  const pts = [];
+  for(let i=0;i<=128;i++){
+    const a = (i/128)*Math.PI*2;
+    pts.push(new THREE.Vector3(Math.cos(a)*radius, 0, Math.sin(a)*radius));
+  }
+  const geo = new THREE.BufferGeometry().setFromPoints(pts);
+  const mat = new THREE.LineBasicMaterial({ color, transparent:true, opacity:0.28 });
+  return new THREE.LineLoop(geo, mat);
+}
+
+const EARTH_ROT_SPEED = 0.06;
+
+SAT_DATA.forEach(sat=>{
+  sat.radius = orbitRadiusFor(sat.alt, sat.cls);
+  const orbitGroup = new THREE.Group();
+  orbitGroup.rotation.x = THREE.MathUtils.degToRad(sat.inc) * 0.55;
+  orbitGroup.rotation.y = sat.raan;
+  orbitGroup.rotation.z = THREE.MathUtils.degToRad(sat.inc) * 0.3;
+  scene.add(orbitGroup);
+
+  const satHolder = new THREE.Group();
+  satHolder.rotation.y = Math.random()*Math.PI*2;
+  orbitGroup.add(satHolder);
+
+  const mesh = buildSatMesh(sat);
+  mesh.position.set(sat.radius, 0, 0);
+  satHolder.add(mesh);
+
+  const ringGeo = new THREE.RingGeometry(0.09,0.105,32);
+  const ringMat = new THREE.MeshBasicMaterial({ color:0x5fe6a8, transparent:true, opacity:0, side:THREE.DoubleSide });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.rotation.x = Math.PI/2;
+  mesh.add(ring);
+
+  sat.orbitGroup = orbitGroup;
+  sat.satHolder = satHolder;
+  sat.mesh = mesh;
+  sat.ring = ring;
+
+  if(sat.cls === 'GEO'){
+    sat.angularSpeed = EARTH_ROT_SPEED;
+  } else if(sat.cls === 'MEO'){
+    sat.angularSpeed = 0.055;
+  } else {
+    sat.angularSpeed = 0.11 + Math.random()*0.05;
+  }
+});
+
+/* ===================== CAMERA CONTROL (manual orbit) ===================== */
+let camAz = 0.4, camEl = 0.35, camDist = 6.4;
+let targetAz = camAz, targetEl = camEl, targetDist = camDist;
+let dragging = false, lastX=0, lastY=0;
+let downX=0, downY=0, movedDuringDrag=false;
+let idleTimer = 0;
+
+canvas.style.pointerEvents = 'auto';
+canvas.addEventListener('pointerdown', e=>{
+  dragging=true; lastX=e.clientX; lastY=e.clientY; downX=e.clientX; downY=e.clientY;
+  movedDuringDrag=false; idleTimer=0;
+});
+window.addEventListener('pointerup', e=>{
+  dragging=false;
+  if(!movedDuringDrag){ handleEarthClick(e.clientX, e.clientY); }
+});
+window.addEventListener('pointermove', e=>{
+  if(!dragging) return;
+  const dx = e.clientX-lastX, dy = e.clientY-lastY;
+  lastX=e.clientX; lastY=e.clientY;
+  if(Math.abs(e.clientX-downX)>4 || Math.abs(e.clientY-downY)>4) movedDuringDrag=true;
+  targetAz -= dx*0.0032;
+  targetEl = targetEl + dy*0.0032;
+  idleTimer = 0;
+});
+canvas.addEventListener('wheel', e=>{
+  targetDist = Math.max(3.4, Math.min(12, targetDist + e.deltaY*0.0025));
+  idleTimer = 0;
+}, { passive:true });
+
+/* ---- Click-to-inspect a location on Earth ---- */
+const LAND_COVER_CLASSES = [
+  { name:'Urban Area',  color:'#8fe9ff' },
+  { name:'Forest',      color:'#5fe6a8' },
+  { name:'Agriculture', color:'#ffd27f' },
+  { name:'Water Body',  color:'#7fc4ff' },
+  { name:'Barren Land', color:'#c9a27a' },
+];
+const raycaster = new THREE.Raycaster();
+const pointerNDC = new THREE.Vector2();
+let clickMarker = null;
+const clickInfoEl = document.getElementById('click-info');
+
+function handleEarthClick(clientX, clientY){
+  if(!earthMesh) return;
+  pointerNDC.x = (clientX/window.innerWidth)*2 - 1;
+  pointerNDC.y = -(clientY/window.innerHeight)*2 + 1;
+  raycaster.setFromCamera(pointerNDC, camera);
+  const hits = raycaster.intersectObject(earthMesh, false);
+  if(!hits.length) return;
+  const worldPoint = hits[0].point.clone();
+
+  /* lat/lon in Earth's own rotating frame */
+  const local = earthMesh.worldToLocal(worldPoint.clone());
+  const r = local.length();
+  const lat = 90 - (Math.acos(local.y/r) * 180/Math.PI);
+  const lon = (Math.atan2(local.z, local.x) * 180/Math.PI);
+
+  /* simulated land-cover prediction */
+  const cls = LAND_COVER_CLASSES[Math.floor(Math.random()*LAND_COVER_CLASSES.length)];
+  const confidence = (85 + Math.random()*14.8).toFixed(1);
+
+  document.getElementById('ci-lat').textContent = Math.abs(lat).toFixed(3)+'° '+(lat>=0?'N':'S');
+  document.getElementById('ci-lon').textContent = Math.abs(lon).toFixed(3)+'° '+(lon>=0?'E':'W');
+  const predEl = document.getElementById('ci-pred');
+  predEl.textContent = cls.name;
+  predEl.style.color = cls.color;
+  document.getElementById('ci-conf').textContent = confidence+'%';
+  clickInfoEl.style.display = 'block';
+
+  /* highlight marker, parented to the Earth so it travels with rotation */
+  if(clickMarker){ earthMesh.remove(clickMarker); }
+  const markerGroup = new THREE.Group();
+  const ringGeo = new THREE.RingGeometry(0.026, 0.036, 40);
+  const ringMat = new THREE.MeshBasicMaterial({ color:cls.color, transparent:true, opacity:0.95, side:THREE.DoubleSide, depthTest:false });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  const dotGeo = new THREE.CircleGeometry(0.01, 20);
+  const dotMat = new THREE.MeshBasicMaterial({ color:cls.color, transparent:true, opacity:1, side:THREE.DoubleSide, depthTest:false });
+  const dot = new THREE.Mesh(dotGeo, dotMat);
+  markerGroup.add(ring, dot);
+  const normalDir = local.clone().normalize();
+  markerGroup.position.copy(normalDir).multiplyScalar(EARTH_R*1.004);
+  markerGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), normalDir);
+  markerGroup.renderOrder = 999;
+  earthMesh.add(markerGroup);
+  clickMarker = markerGroup;
+
+  /* smoothly zoom / rotate camera to face the clicked point */
+  const wd = worldPoint.clone().normalize();
+  targetAz = Math.atan2(wd.x, wd.z);
+  targetEl = Math.max(-1.4, Math.min(1.4, Math.asin(Math.max(-1, Math.min(1, wd.y)))));
+  targetDist = 3.7;
+  idleTimer = 0;
+}
+
+document.getElementById('click-info-close').addEventListener('click', ()=>{
+  clickInfoEl.style.display = 'none';
+});
+
+function updateCamera(dt){
+  if(!dragging) idleTimer += dt;
+  if(idleTimer > 3.5){ targetAz += dt*0.028; }
+  camAz += (targetAz-camAz)*0.06;
+  camEl += (targetEl-camEl)*0.06;
+  camDist += (targetDist-camDist)*0.06;
+  const x = camDist*Math.cos(camEl)*Math.sin(camAz);
+  const y = camDist*Math.sin(camEl);
+  const z = camDist*Math.cos(camEl)*Math.cos(camAz);
+  camera.position.set(x,y,z);
+  camera.lookAt(0,0,0);
+}
+
+/* ===================== (satellite list / detail UI removed) ===================== */
+let selectedKey = 'HUBBLE';
+
+/* ===================== SCREEN LABELS ===================== */
+const labelsLayer = document.getElementById('labels-layer');
+const labelEls = {};
+SAT_DATA.forEach(sat=>{
+  const el = document.createElement('div');
+  el.className = 'sat-label';
+  el.innerHTML = `<div class="name-tag">${sat.name}</div><div class="stem"></div>`;
+  labelsLayer.appendChild(el);
+  labelEls[sat.key] = el;
+});
+
+const tmpVec = new THREE.Vector3();
+function worldToLatLon(mesh){
+  mesh.getWorldPosition(tmpVec);
+  const local = earthMesh.worldToLocal(tmpVec.clone());
+  const r = local.length();
+  const lat = 90 - (Math.acos(local.y/r) * 180/Math.PI);
+  const lon = (Math.atan2(local.z, local.x) * 180/Math.PI);
+  return { lat, lon };
+}
+
+/* ===================== CLOCK ===================== */
+function updateClock(){
+  const now = new Date();
+  const istOffsetMs = (5*60+30)*60*1000;
+  const ist = new Date(now.getTime() + istOffsetMs + (now.getTimezoneOffset()*60000));
+  const hh = String(ist.getHours()).padStart(2,'0');
+  const mm = String(ist.getMinutes()).padStart(2,'0');
+  const ss = String(ist.getSeconds()).padStart(2,'0');
+  document.getElementById('clock').textContent = `${hh}:${mm}:${ss} IST`;
+  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  document.getElementById('datestamp').textContent = `${ist.getDate()} ${months[ist.getMonth()]} ${ist.getFullYear()}`;
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+/* ===================== ANIMATE ===================== */
+const clock = new THREE.Clock();
+
+function onResize(){
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+window.addEventListener('resize', onResize);
+
+function animate(){
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+
+  if(earthMesh) earthGroup.rotation.y += EARTH_ROT_SPEED*dt;
+  if(cloudMesh) cloudMesh.rotation.y += EARTH_ROT_SPEED*dt*1.25;
+
+  SAT_DATA.forEach(sat=>{
+    sat.satHolder.rotation.y += sat.angularSpeed*dt;
+  });
+
+  if(clickMarker){
+    const pulse = 1 + 0.18*Math.sin(clock.elapsedTime*3.2);
+    clickMarker.children[0].scale.setScalar(pulse);
+  }
+
+  updateCamera(dt);
+  renderer.render(scene, camera);
+
+}
+animate();
+onResize();
+} catch(err) {
+  console.error('Earth Tracker scene error:', err);
+  window.__hideLoader && window.__hideLoader();
+}
+</script>
+
+<script>
+/* ===================== LAND USE / PREDICTION PANEL LOGIC ===================== */
+(function(){
+  // Backend base URL — change if the Flask API runs somewhere else.
+  const API_BASE_URL = 'http://localhost:5000';
+
+  // Must match backend/config.py CLASS_NAMES exactly (same order).
+  const CLASSES = [
+    { key:'annualcrop',  name:'Annual Crop',            color:'#c9e56b' },
+    { key:'forest',      name:'Forest',                 color:'#3ecf6b' },
+    { key:'herbveg',     name:'Herbaceous Vegetation',  color:'#8fe6a0' },
+    { key:'highway',     name:'Highway',                color:'#c9a27a' },
+    { key:'industrial',  name:'Industrial',             color:'#ff6f6f' },
+    { key:'pasture',     name:'Pasture',                color:'#a8e6cf' },
+    { key:'permcrop',    name:'Permanent Crop',         color:'#e0c860' },
+    { key:'residential', name:'Residential',            color:'#ffd54f' },
+    { key:'river',       name:'River',                  color:'#4fa3ff' },
+    { key:'sealake',     name:'Sea / Lake',             color:'#2f7fe0' },
+  ];
+  const colorFor = (className) => {
+    const hit = CLASSES.find(c => c.name === className);
+    return hit ? hit.color : '#8fc3da';
+  };
+  const LEGEND = CLASSES;
+
+  function rngSeeded(seed){
+    let s = seed;
+    return function(){ s = (s*9301+49297)%233280; return s/233280; };
+  }
+
+  /* ---- procedural "satellite" thumbnail texture, used as the default uploaded image ---- */
+  function drawThumb(canvas, palette, seed){
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+    const rnd = rngSeeded(seed);
+    ctx.fillStyle = palette.base; ctx.fillRect(0,0,w,h);
+    for(let i=0;i<90;i++){
+      const c = palette.blobs[Math.floor(rnd()*palette.blobs.length)];
+      ctx.fillStyle = c;
+      ctx.globalAlpha = 0.35 + rnd()*0.4;
+      const x = rnd()*w, y = rnd()*h, r = 4 + rnd()*18;
+      ctx.beginPath(); ctx.ellipse(x,y,r, r*(0.5+rnd()*0.7), rnd()*Math.PI, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    return canvas.toDataURL();
+  }
+  const AGRI_PALETTE = { base:'#3a6b2f', blobs:['#4f8a3a','#2e5522','#6ba845','#3a6b2f'] };
+
+  /* ---- Uploaded Image panel ---- */
+  const uploadedSection = document.getElementById('uploaded-section');
+  const uploadedPreview = document.getElementById('uploaded-preview');
+  const uploadedFilename = document.getElementById('uploaded-filename');
+  const metaRes = document.getElementById('meta-res');
+  const metaType = document.getElementById('meta-type');
+  const metaSize = document.getElementById('meta-size');
+
+  function timestampName(){
+    const d = new Date();
+    const p = n=> String(n).padStart(2,'0');
+    return `image_${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.jpg`;
+  }
+
+  // Holds the actual File/Blob that gets sent to the backend on predict.
+  let lastUploadedFile = null;
+
+  function setUploadedImage({ url, name, type, sizeKB, width, height }){
+    uploadedPreview.style.backgroundImage = `url(${url})`;
+    uploadedFilename.textContent = name;
+    metaRes.textContent = `${width} x ${height} px`;
+    metaType.textContent = type;
+    metaSize.textContent = `${sizeKB} KB`;
+    uploadedSection.style.display = 'flex';
+  }
+
+  function loadDefaultSample(){
+    const c = document.createElement('canvas'); c.width = 512; c.height = 512;
+    const url = drawThumb(c, AGRI_PALETTE, 7);
+    const name = timestampName();
+    setUploadedImage({ url, name, type:'image/jpeg', sizeKB: 245, width:512, height:512 });
+    // Convert the procedural thumbnail into a real file so it can be sent
+    // to the backend too (it's just a placeholder — swap in a real
+    // satellite image via upload for a meaningful prediction).
+    c.toBlob((blob)=>{
+      lastUploadedFile = new File([blob], name, { type: 'image/jpeg' });
+    }, 'image/jpeg', 0.92);
+  }
+  loadDefaultSample();
+
+  document.getElementById('uploaded-trash').addEventListener('click', ()=>{
+    uploadedSection.style.display = 'none';
+    lastUploadedFile = null;
+  });
+
+  /* ---- file upload / drag&drop ---- */
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('file-input');
+
+  function ingestFile(f){
+    if(!f) return;
+    lastUploadedFile = f;
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const img = new Image();
+      img.onload = ()=>{
+        setUploadedImage({
+          url: reader.result,
+          name: f.name || timestampName(),
+          type: f.type || 'image/jpeg',
+          sizeKB: Math.max(1, Math.round(f.size/1024)),
+          width: img.naturalWidth, height: img.naturalHeight,
+        });
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(f);
+  }
+
+  document.getElementById('browse-btn').addEventListener('click', (e)=>{ e.stopPropagation(); fileInput.click(); });
+  dropzone.addEventListener('click', ()=> fileInput.click());
+  fileInput.addEventListener('change', ()=> ingestFile(fileInput.files[0]));
+  ['dragover','dragenter'].forEach(ev=> dropzone.addEventListener(ev, e=>{ e.preventDefault(); dropzone.classList.add('drag-over'); }));
+  ['dragleave','drop'].forEach(ev=> dropzone.addEventListener(ev, e=>{ e.preventDefault(); dropzone.classList.remove('drag-over'); }));
+  dropzone.addEventListener('drop', e=> ingestFile(e.dataTransfer.files[0]));
+
+  /* ---- prediction / probability rendering ---- */
+  const probsList = document.getElementById('probs-list');
+  const legendGrid = document.getElementById('legend-grid');
+  legendGrid.innerHTML = LEGEND.map(c=>`<div class="legend-item"><span class="legend-swatch" style="background:${c.color}"></span>${c.name}</div>`).join('');
+
+  // probs: array of { class, confidence } as returned by the backend, e.g.
+  // [{ class:'Forest', confidence:92.34 }, ...] — already sorted, highest first.
+  function renderPrediction(probs){
+    probsList.innerHTML = probs.map(p=>{
+      const color = colorFor(p.class);
+      return `
+      <div class="prob-row">
+        <span class="prob-dot" style="background:${color}"></span>
+        <span class="prob-name">${p.class}</span>
+        <span class="prob-track"><span class="prob-fill" style="width:${p.confidence}%; background:${color}"></span></span>
+        <span class="prob-pct">${p.confidence.toFixed(2)}%</span>
+      </div>`;
+    }).join('');
+    const top = probs[0];
+    const topColor = colorFor(top.class);
+    document.getElementById('pred-class-name').textContent = top.class.toUpperCase();
+    document.getElementById('pred-class-name').style.color = topColor;
+    document.getElementById('pred-conf-num').textContent = top.confidence.toFixed(2)+'%';
+    document.getElementById('conf-bar-fill').style.width = top.confidence+'%';
+    document.getElementById('conf-bar-fill').style.background = `linear-gradient(90deg, ${topColor}, #ffffff33)`;
+  }
+
+  function showPredictError(message){
+    probsList.innerHTML = `<div style="padding:14px 4px; color:#ff8f8f; font-size:11.5px; line-height:1.5;">${message}</div>`;
+  }
+
+  function resetPredictionPanel(){
+    probsList.innerHTML = `<div style="padding:14px 4px; color:#5c7488; font-size:11px; letter-spacing:.5px;">Upload an image and click PREDICT LAND COVER to see results.</div>`;
+    document.getElementById('pred-class-name').textContent = '--';
+    document.getElementById('pred-class-name').style.color = '';
+    document.getElementById('pred-conf-num').textContent = '--';
+    document.getElementById('conf-bar-fill').style.width = '0%';
+  }
+
+  // Nothing is shown until the user actually runs a prediction.
+  resetPredictionPanel();
+
+  /* ---- predict: sends the uploaded image to the Flask backend ---- */
+  const runBtn = document.getElementById('run-btn');
+  const runBtnLabel = ()=> `PREDICT LAND COVER`;
+  runBtn.addEventListener('click', async ()=>{
+    if(runBtn.classList.contains('busy')) return;
+    if(!lastUploadedFile){
+      showPredictError('No image loaded — upload a satellite image first.');
+      return;
+    }
+    runBtn.classList.add('busy');
+    const iconMarkup = runBtn.querySelector('svg').outerHTML;
+    runBtn.innerHTML = iconMarkup + 'PREDICTING...';
+
+    try{
+      const formData = new FormData();
+      formData.append('image', lastUploadedFile, lastUploadedFile.name || 'image.jpg');
+
+      const res = await fetch(`${API_BASE_URL}/api/predict`, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+
+      if(!res.ok || !data.success){
+        throw new Error(data.error || `Request failed (${res.status})`);
+      }
+      renderPrediction(data.probabilities);
+    }catch(err){
+      showPredictError(
+        `Prediction failed: ${err.message}. Is the backend running at ${API_BASE_URL}?`
+      );
+    }finally{
+      runBtn.classList.remove('busy');
+      runBtn.innerHTML = iconMarkup + runBtnLabel();
+    }
+  });
+})();
+</script>
+</body>
+</html>
