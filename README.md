@@ -28,7 +28,7 @@ The project provides a Flask REST API for image classification and a web-based f
 * Probability distribution across all classes
 * Docker support for backend deployment
 * Health-check API endpoint
-* CORS support for frontend-backend communication
+  
 
 ## Model
 
