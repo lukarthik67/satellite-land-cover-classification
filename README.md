@@ -90,6 +90,8 @@ The dataset contains images from the following classes:
 ```text
 satellite-lulc-classification/
 │
+|--Training/
+|    |--LULC_ResNet50_Training  
 ├── backend/
 │   ├── app.py
 │   ├── config.py
