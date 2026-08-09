@@ -1,6 +1,5 @@
 # Satellite Land Use and Land Cover Classification
 
-![Uploading WhatsApp Image 2026-08-09 at 1.16.13 PM.jpeg…]()
 
 ![License](https://img.shields.io/badge/License-MIT-blue)
 ![PRs](https://img.shields.io/badge/PRs-welcome-brightgreen)
@@ -9,6 +8,10 @@
 ![TensorFlow](https://img.shields.io/badge/TensorFlow-2.x-orange)
 ![ResNet50](https://img.shields.io/badge/Model-ResNet50-blue)
 ![Flask](https://img.shields.io/badge/Backend-Flask-black)
+
+
+<img width="1600" height="984" alt="WhatsApp Image 2026-08-09 at 1 16 13 PM" src="https://github.com/user-attachments/assets/e0bb2d47-074b-4842-94b0-9ac66f2a3548" />
+
 
 A deep learning-based web application for **Satellite Land Use and Land Cover (LULC) classification** using a fine-tuned **ResNet50** model trained on the **EuroSAT RGB dataset**.
 
